@@ -1,0 +1,22 @@
+# Ignore Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore virtual environment
+venv/
+.env/
+
+# Ignore IDE/editor configurations
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+.pdf
+Backup/
+.txt
