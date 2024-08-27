@@ -1,3 +1,9 @@
+#Copyright (c) 2024, Ayaz Ahmed
+#All rights reserved.
+
+#This source code is licensed under the BSD-style license found in the
+#LICENSE file in the root directory of this source tree. 
+
 # Aerodynamic coefficients for the Aerosonde UAV
 import numpy as np
 

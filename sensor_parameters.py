@@ -1,3 +1,9 @@
+#Copyright (c) 2024, Ayaz Ahmed
+#All rights reserved.
+
+#This source code is licensed under the BSD-style license found in the
+#LICENSE file in the root directory of this source tree. 
+
 import numpy as np
 accel_sigma = 0.0025 * 9.81  # standard deviation of accelerometers in m/s^2
 accel_rate = 0.01  # Update rate in seconds (100 Hz)
