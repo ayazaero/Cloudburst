@@ -4,9 +4,6 @@ import zmq
 import uuid
 import numpy as np
 import os
-from sensor_parameters import Sensors
-from internal_dynamics import InternalDynamics
-from actuator_dynamics import Actuator
 from atmosphere_dynamics import Atmos
 
 def get_free_port(starting_port=5557, max_attempts=100):
@@ -99,7 +96,7 @@ class Atmosphere:
                     self.rep_socket.send_json({"error": "Unknown command"})
             except zmq.Again:
                 pass  # No message received, just continue checking the running flag
-            time.sleep(0.1)
+            time.sleep(0.001)
         print(f"{self.agent_id}: Rep thread exiting.")
 
 

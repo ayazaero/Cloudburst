@@ -2,15 +2,16 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from actuator_dynamics import Actuator
+import uav_paramters as up
 
-target = np.array([1000, 0, 1000, 1500, 2000, 2500, 3000, 2000, 1000, 0])
-target = target/300.0
+target = np.array([0, 200, 400, 600, 800, 1000, 500,0])
+target = target/2000
 
 def main():
     # Initialize actuator with PID parameters
-    #thrust = Actuator("thrust", kp=5.0, ki=0.5, kd=0.05,initial_position=0.0,time_constant=0.1,min_position=0.0,max_position=3000.0)
-    thrust = Actuator("aileron_left", kp=5.0, ki=0.5, kd=0.05,initial_position=0.0,time_constant=0.1,min_position=-12.0,max_position=12.0)
-    thrust.pid.set_integral_limits(-100, 100)  # Different range for thrust
+    thrust = Actuator("elevator", kp=70.0, ki=15, kd=0.5,initial_position=0.0,natural_frequency=10,damping_ratio=5,min_position=-up.max_delta_e,max_position=up.max_delta_e)
+    #thrust = Actuator("aileron_left", kp=30.0, ki=15, kd=0.5,initial_position=0.0,natural_frequency=10,damping_ratio=0.6,min_position=-12.0,max_position=12.0)
+    thrust.pid.set_integral_limits(-1, 1)  # Different range for thrust
 
     thrust.start()
 
@@ -26,19 +27,19 @@ def main():
             current_time = time.time()
             end_time = current_time + 2  # Change target every 2 seconds
             while time.time() < end_time:
-                actual_position = thrust.get_position()
+                
                 elapsed_time = time.time() - start_time
 
                 # Store the values for plotting
                 times.append(elapsed_time)
                 target_positions.append(t)
-                actual_positions.append(actual_position)
+                actual_positions.append(thrust.get_position())
 
                 # Print the current thrust position
-                print(f"Thrust Position: {actual_position:.2f}")
+                print(f"Thrust Position: {t:.2f}")
 
 
-                time.sleep(0.1)  # Monitor every 0.1 seconds
+                time.sleep(0.01)  # Monitor every 0.1 seconds
 
     except KeyboardInterrupt:
         pass

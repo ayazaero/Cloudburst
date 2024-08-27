@@ -5,7 +5,7 @@ from pyproj import Proj, Transformer
 
 class Atmos:
     def __init__(self):
-        self.wind_scale = np.array([10.0,10.0,0.0])
+        self.wind_scale = np.array([0.5,0.5,0.5])
         self.wind_data={}
         self.running = True
 

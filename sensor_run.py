@@ -161,6 +161,8 @@ class Sensors:
             # Determine the correct state to pass to the sensor function
             if sensor_func == self.simulate_accelerometer:
                 sensor_data = self.get_sensor_data(sensor_func, is_gps, truestate.sdot, ref_lla)
+            elif sensor_func == self.simulate_pitot_tube:
+                sensor_data = self.get_sensor_data(sensor_func, is_gps, truestate.state, truestate.Vwi)
             else:
                 sensor_data = self.get_sensor_data(sensor_func, is_gps, truestate.state, ref_lla)
 
@@ -193,8 +195,17 @@ class Sensors:
             return self.simulate_altimeter(true_altitude)
 
         elif sensor_func == self.simulate_pitot_tube:
+            Vwi=ref_lla
+            Rmat=self.rotation_matrix(phi,theta,psi)
+            #print(Rmat)
+            #print(Vwi)  
+            Vwb=Rmat@Vwi
+            
+            Vgb=np.array([[u],[v],[w]])
+            Vab=Vgb-Vwb
+
             # Calculate true airspeed based on the magnitude of body frame velocities
-            true_airspeed = np.sqrt(u**2 + v**2 + w**2)
+            true_airspeed = np.linalg.norm(Vab)
             return self.simulate_pitot_tube(true_airspeed)
 
         elif sensor_func == self.simulate_magnetometer:
@@ -314,20 +325,36 @@ class Sensors:
         return B_body
 
     def euler_to_rotation_matrix(self,phi, theta, psi):
-        phi=np.radians(phi)
-        theta = np.radians(theta)
-        psi = np.radians(psi)
+        phi=np.radians(phi[0])
+        theta = np.radians(theta[0])
+        psi = np.radians(psi[0])
         # Rotation matrix from NED to body frame
-        Rz = np.array([[np.cos(psi[0]), np.sin(psi[0]), 0],
-                    [-np.sin(psi[0]), np.cos(psi[0]), 0],
+        Rz = np.array([[np.cos(psi), np.sin(psi), 0],
+                    [-np.sin(psi), np.cos(psi), 0],
                     [0, 0, 1]])
-        Ry = np.array([[np.cos(theta[0]), 0, -np.sin(theta[0])],
+        Ry = np.array([[np.cos(theta), 0, -np.sin(theta)],
                     [0, 1, 0],
-                    [np.sin(theta[0]), 0, np.cos(theta[0])]])
+                    [np.sin(theta), 0, np.cos(theta)]])
         Rx = np.array([[1, 0, 0],
-                    [0, np.cos(phi[0]), np.sin(phi[0])],
-                    [0, -np.sin(phi[0]), np.cos(phi[0])]])
-        return  Ry.T @ Rx.T @ Rz @ Ry @ Rx
+                    [0, np.cos(phi), np.sin(phi)],
+                    [0, -np.sin(phi), np.cos(phi)]])
+        return  Ry.T @ Rx.T @ Rz @ Ry @ Rx #find out why?
+    
+    def rotation_matrix(self,phi, theta, psi):
+        phi=np.radians(phi[0])
+        theta = np.radians(theta[0])
+        psi = np.radians(psi[0])
+        # Rotation matrix from NED to body frame
+        Rz = np.array([[np.cos(psi), np.sin(psi), 0],
+                    [-np.sin(psi), np.cos(psi), 0],
+                    [0, 0, 1]])
+        Ry = np.array([[np.cos(theta), 0, -np.sin(theta)],
+                    [0, 1, 0],
+                    [np.sin(theta), 0, np.cos(theta)]])
+        Rx = np.array([[1, 0, 0],
+                    [0, np.cos(phi), np.sin(phi)],
+                    [0, -np.sin(phi), np.cos(phi)]])
+        return  Rz @ Ry @ Rx
 
     def calculate_heading_from_magnetometer(self,B_measured):
         # Calculate heading from the measured magnetic field in the body frame
