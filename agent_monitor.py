@@ -10,7 +10,9 @@ import zmq
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from mpl_toolkits.mplot3d import Axes3D
 import threading
 import time
 
@@ -39,14 +41,14 @@ class App:
         self.current_agent = None
         self.subscriber = None
         self.context = zmq.Context()
-        self.data_buffer = {'height': [], 'velocity': [], 'phi': [], 'tht': [], 'psi': []}
+        self.data_buffer = {'height': [], 'velocity': [], 'phi': [], 'tht': [], 'psi': [], 'x': [], 'y': [], 'z': []}
         self.is_paused = False
 
         self.default_font = font.nametofont("TkDefaultFont")
         self.default_font.configure(size=12)
         self.text_font = font.Font(family="Helvetica", size=12)
         root.option_add("*Font", self.default_font)
-        root.geometry("1200x1100")
+        root.geometry("2000x1100")
 
         self.dropdown = ttk.Combobox(root, values=list(self.agents.keys()))
         self.dropdown.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
@@ -64,10 +66,68 @@ class App:
         self.block2 = tk.Text(root, height=20, width=50, font=self.text_font)
         self.block2.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
         
+        # 2D plots
         self.figure, self.ax = plt.subplots(3, 1, figsize=(7, 10))
         self.canvas = FigureCanvasTkAgg(self.figure, master=root)
         self.canvas.draw()
         self.canvas.get_tk_widget().grid(row=0, column=2, rowspan=4, padx=10, pady=10, sticky="nsew")
+
+        # 3D plot
+        self.figure3d = Figure(figsize=(7, 10))
+        self.ax3d = self.figure3d.add_subplot(111, projection='3d')
+        self.canvas3d = FigureCanvasTkAgg(self.figure3d, master=root)
+        self.canvas3d.draw()
+        self.canvas3d.get_tk_widget().grid(row=0, column=3, rowspan=4, padx=10, pady=10, sticky="nsew")
+
+        if self.agents:
+            self.dropdown.set(list(self.agents.keys())[-1])  # Set to last agent in the list
+            self.on_agent_selected(None)  # Connect to the last agent automatically
+
+    def on_agent_selected(self, event):
+        new_agent = self.dropdown.get()
+        if new_agent != self.current_agent:
+            self.disconnect_current_agent()
+            self.data_buffer = {'height': [], 'velocity': [], 'phi': [], 'tht': [], 'psi': [], 'x': [], 'y': [], 'z': []}
+            self.connect_to_agent(new_agent)
+
+    # Other methods remain unchanged
+
+    def update_plot_data(self, state):
+        self.data_buffer['height'].append(-state[2])  # Assuming state[2] is depth/altitude
+        self.data_buffer['velocity'].append(np.linalg.norm(state[3:6]))
+        self.data_buffer['phi'].append(state[6])
+        self.data_buffer['tht'].append(state[7])
+        self.data_buffer['psi'].append(state[8])
+        self.data_buffer['x'].append(state[0])  # Assuming state[0] is x-coordinate
+        self.data_buffer['y'].append(state[1])  # Assuming state[1] is y-coordinate
+        self.data_buffer['z'].append(-state[2])  # Assuming state[2] is z-coordinate
+        self.plot_data()
+
+    def plot_data(self):
+        # Update 2D plots
+        self.ax[0].cla()
+        self.ax[1].cla()
+        self.ax[2].cla()
+        
+        self.ax[0].plot(self.data_buffer['height'], label="Height", marker='.')
+        self.ax[1].plot(self.data_buffer['velocity'], label="Velocity", marker='.')
+        self.ax[2].plot(self.data_buffer['phi'], label="Phi", marker='.')
+        self.ax[2].plot(self.data_buffer['tht'], label="Theta", marker='.')
+        self.ax[2].plot(self.data_buffer['psi'], label="Psi", marker='.')
+        
+        self.ax[0].legend()
+        self.ax[1].legend()
+        self.ax[2].legend()
+        self.canvas.draw()
+
+        # Update 3D plot
+        self.ax3d.clear()
+        self.ax3d.plot3D(self.data_buffer['x'], self.data_buffer['y'], self.data_buffer['z'], label='Trajectory', marker='.')
+        self.ax3d.set_xlabel('X')
+        self.ax3d.set_ylabel('Y')
+        self.ax3d.set_zlabel('Z')
+        self.ax3d.legend()
+        self.canvas3d.draw()
 
     def update_dropdown(self, new_agents):
         if new_agents != self.agents:
@@ -76,12 +136,7 @@ class App:
             if self.current_agent not in self.agents:
                 self.disconnect_current_agent()
 
-    def on_agent_selected(self, event):
-        new_agent = self.dropdown.get()
-        if new_agent != self.current_agent:
-            self.disconnect_current_agent()
-            self.data_buffer = {'height': [], 'velocity': [], 'phi': [], 'tht': [], 'psi': []}
-            self.connect_to_agent(new_agent)
+    
 
     def connect_to_agent(self, agent_id):
         if self.subscriber:
@@ -139,33 +194,6 @@ class App:
         ])
         self.block1.delete('1.0', tk.END)
         self.block1.insert(tk.END, formatted_state)
-
-    def update_plot_data(self, state):
-        self.data_buffer['height'].append(-state[2])
-        self.data_buffer['velocity'].append(np.linalg.norm(state[3:6]))
-        self.data_buffer['phi'].append(state[6])
-        self.data_buffer['tht'].append(state[7])
-        self.data_buffer['psi'].append(state[8])
-        self.plot_data()
-
-    def plot_data(self):
-        self.ax[0].cla()
-        self.ax[1].cla()
-        self.ax[2].cla()
-        
-        self.ax[0].plot(self.data_buffer['height'], label="Height", marker='.')
-        self.ax[1].plot(self.data_buffer['velocity'], label="Velocity", marker='.')
-        self.ax[2].plot(self.data_buffer['phi'], label="Phi", marker='.')
-        self.ax[2].plot(self.data_buffer['tht'], label="Theta", marker='.')
-        self.ax[2].plot(self.data_buffer['psi'], label="Psi", marker='.')
-        
-        self.ax[0].legend()
-        self.ax[1].legend()
-        self.ax[2].legend()
-
-        self.ax[2].set_ylim([-30,30])
-        
-        self.canvas.draw()
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -39,9 +39,20 @@ class PIDController:
         return output
     
 class Controller:
-    def __init__(self,dynamics,aileron_l,aileron_r,rudder,elevator,thruster):
+    def __init__(self,dynamics,aileron_l,aileron_r,rudder,elevator,thruster,target):
         self.running =True
         self.lock = threading.Lock()
+
+        self.target = target        #drop location
+        self.target_psi = 0.0       #target heading
+        self.cruise_height = 100.0  #cruise altitude
+        self.drop_height = 10.0     #height at which drop has to made
+        self.takeoff_height = 20.0  #where takeoff ends and climb starts
+        self.cruise_airspeed = 30.0 #cruising airspeed m/s
+        self.delta_tstar = 0.3986   #trim throttle
+        self.takeoff_theta = 20 * np.pi/180 # takeoff theta
+        self.dwell_speed = 10.0     # airspeed while climbing
+        self.climb_speed = 30.0     #airspeed while climbing
 
         self.internaldynamics = dynamics
         self.aileron_l = aileron_l
@@ -57,9 +68,9 @@ class Controller:
         self.a_beta_2=0
 
         # Tuning parameters for roll
-        self.e_phi_max=50*np.pi/180
+        self.e_phi_max=30.0*np.pi/180
         self.damp_phi = 5.0
-        self.damp_xi = 2.0
+        self.damp_xi = 20.0
         self.Ki_phi = 0.005
         self.W_xi = 100.0
 
@@ -69,17 +80,21 @@ class Controller:
         self.damp_beta=50
 
         # Tuning parameters for Velocity hold using throttle
-        self.damp_v = 10
-        self.omega_n_v = 0.1
+        self.damp_v = 1
+        self.omega_n_v = 10.0
 
         # Tuning parameters for pitch and altitude hold
-        self.e_theta_max = 70.0*np.pi/180
-        self.damp_theta = 0.8
-        self.damp_h = 0.7
-        self.W_h = 20
+        self.e_theta_max = 1.0*np.pi/180
+        self.damp_theta = 5
+        self.damp_h = 1
+        self.W_h = 10
 
         self.omega_n_h=0
         self.omega_n_theta = 0
+
+        # tuning parameter for aispeed hold using pitch
+        self.W_V2 = 15.0
+        self.damp_V2 = 20.0
 
 
 
@@ -96,40 +111,42 @@ class Controller:
         self.Kd_theta = 0.0
         self.Kp_h = 0.0
         self.Ki_h = 0.0
+        self.Kp_V2 = 0.0
+        self.Ki_V2 = 0.0
 
         
 
-        calculate_gains(self,desVa=30.0)
+        calculate_gains(self,10)
         
-        print('Kp_phi: ',self.Kp_phi)
-        print('Ki_phi: ',self.Ki_phi)
-        print('Kd_phi: ',self.Kd_phi)
-        print('Kp_xi: ',self.Kp_xi)
-        print('Ki_xi: ',self.Ki_xi)
-        print('Kp_beta: ',self.Kp_beta)
-        print('Ki_beta: ',self.Ki_beta)
-        #print('Kp_v: ',self.Kp_v)
-        #print('Ki_v: ',self.Ki_v)
-        #print('Kp_theta: ',self.Kp_theta)
-        #print('Kd_theta: ',self.Kd_theta)
-        #print('Kp_h: ',self.Kp_h)
-        #print('Ki_h: ',self.Ki_h)
+        #print('Kp_phi: ',self.Kp_phi)
+        #print('Ki_phi: ',self.Ki_phi)
+        #print('Kd_phi: ',self.Kd_phi)
+        #print('Kp_xi: ',self.Kp_xi)
+        #print('Ki_xi: ',self.Ki_xi)
+        #print('Kp_beta: ',self.Kp_beta)
+        #print('Ki_beta: ',self.Ki_beta)
+        print('Kp_v: ',self.Kp_v)
+        print('Ki_v: ',self.Ki_v)
+        print('Kp_theta: ',self.Kp_theta)
+        print('Kd_theta: ',self.Kd_theta)
+        print('Kp_h: ',self.Kp_h)
+        print('Ki_h: ',self.Ki_h)
         #print('omega_n_theta: ',self.omega_n_theta)
 
         self.xi_c=0
         self.phi_c=0
 
         self.pid_beta = PIDController(-self.Kp_beta,-self.Ki_beta,0.0)
-        self.pid_phi = PIDController(0.1*self.Kp_phi,self.Ki_phi,0.0)
+        self.pid_phi = PIDController(self.Kp_phi,self.Ki_phi,0.0)
         self.pid_xi = PIDController(self.Kp_xi,self.Ki_xi,0.0)
         self.pid_v = PIDController(self.Kp_v,self.Ki_v,0.0)
         self.pid_h = PIDController(self.Kp_h,self.Ki_h,0.0)
+        self.pid_V2 = PIDController(self.Kp_V2,self.Ki_V2,0.0)
         
         self.thread = threading.Thread(target=self.run_controller, args=())
         
 
-    def lateral_controller(self):
-        pass
+
 
     def run_controller(self):
         previous_time = time.time()
@@ -142,29 +159,150 @@ class Controller:
                     Va=self.internaldynamics.Va
                     beta = self.internaldynamics.beta
 
-                delta_r = self.pid_beta.compute(0.0,self.internaldynamics.beta,dt)
-                self.rudder.set_target_position(delta_r)
-                #time.sleep(0.001)
-                self.phi_c = self.pid_xi.compute(0.0,self.internaldynamics.state[8]*np.pi/180,dt)
-                #self.phi_c = 0.01
-                #time.sleep(0.001)
-                delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
-                delta_a-=self.Kd_phi*state[9]
-                self.aileron_l.set_target_position(delta_a)
-                self.aileron_r.set_target_position(-delta_a)
-                #print(self.phi_c,state[6]*np.pi/180)
+                if self.internaldynamics.status == 'CRUISE_UP':
+                    delta_r = self.pid_beta.compute(0.0,beta,dt)
+                    self.rudder.set_target_position(delta_r)
+                    #time.sleep(0.001)
+                    self.phi_c = self.pid_xi.compute(self.target_psi,self.internaldynamics.state[8]*np.pi/180,dt)
+                    #self.phi_c = 0.01
+                    #time.sleep(0.001)
+                    delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
+                    delta_a-=self.Kd_phi*state[9]
+                    self.aileron_l.set_target_position(delta_a)
+                    self.aileron_r.set_target_position(-delta_a)
+                    #print(self.phi_c,state[6]*np.pi/180)
 
-                delta_t = self.pid_v.compute(30.0,Va,dt)
-                self.thruster.set_target_position(delta_t+0.3986)
+                    delta_t = self.pid_v.compute(self.cruise_airspeed,Va,dt)
+                    self.thruster.set_target_position(delta_t+self.delta_tstar)
 
-                theta_c = self.pid_h.compute(100.0,-state[2],dt)
-                #theta_c = 2.3249*np.pi/180.0
-                delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
-                self.elevator.set_target_position(delta_e)
-                #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
+                    theta_c = self.pid_h.compute(self.cruise_height,-state[2],dt)
+                    #theta_c = 2.3249*np.pi/180.0
+                    delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
+                    self.elevator.set_target_position(delta_e)
+                    #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
 
-                #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
-                   
+                    #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
+                
+                elif self.internaldynamics.status == 'CRUISE_DOWN':
+                    delta_r = self.pid_beta.compute(0.0,beta,dt)
+                    self.rudder.set_target_position(delta_r)
+                    #time.sleep(0.001)
+                    self.phi_c = self.pid_xi.compute(self.target_psi,self.internaldynamics.state[8]*np.pi/180,dt)
+                    #self.phi_c = 0.01
+                    #time.sleep(0.001)
+                    delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
+                    delta_a-=self.Kd_phi*state[9]
+                    self.aileron_l.set_target_position(delta_a)
+                    self.aileron_r.set_target_position(-delta_a)
+                    #print(self.phi_c,state[6]*np.pi/180)
+
+                    delta_t = self.pid_v.compute(self.cruise_airspeed,Va,dt)
+                    self.thruster.set_target_position(delta_t+self.delta_tstar)
+
+                    theta_c = self.pid_h.compute(self.cruise_height,-state[2],dt)
+                    #theta_c = 2.3249*np.pi/180.0
+                    delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
+                    self.elevator.set_target_position(delta_e)
+                    #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
+
+                    #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
+
+                elif self.internaldynamics.status == 'CLIMB':
+                    self.target_psi = np.arctan2(self.target[1]-self.internaldynamics.state[1],self.target[0]-self.internaldynamics.state[0])
+                    delta_r = self.pid_beta.compute(0.0,beta,dt)
+                    self.rudder.set_target_position(delta_r)
+                    #time.sleep(0.001)
+                    self.phi_c = self.pid_xi.compute(self.target_psi,self.internaldynamics.state[8]*np.pi/180,dt)
+                    #self.phi_c = 0.01
+                    #time.sleep(0.001)
+                    delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
+                    delta_a-=self.Kd_phi*state[9]
+                    self.aileron_l.set_target_position(delta_a)
+                    self.aileron_r.set_target_position(-delta_a)
+                    #print(self.phi_c,state[6]*np.pi/180)
+
+
+                    self.thruster.set_target_position(0.9*up.max_delta_t)
+
+                    theta_c = self.pid_V2.compute(self.climb_speed,Va,dt)
+                    #theta_c = 2.3249*np.pi/180.0
+                    delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
+                    self.elevator.set_target_position(delta_e)
+
+                    if np.abs(self.internaldynamics.state[2]+self.cruise_height)<10:
+                        self.internaldynamics.status = 'CRUISE_UP'
+                        print('Starting Cruise')
+                    #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
+
+                    #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
+
+                elif self.internaldynamics.status == 'TAKEOFF':
+                    delta_r = self.pid_beta.compute(0.0,beta,dt)
+                    self.rudder.set_target_position(delta_r)
+                    #time.sleep(0.001)
+                    self.phi_c = self.pid_xi.compute(self.target_psi,self.internaldynamics.state[8]*np.pi/180,dt)
+                    #self.phi_c = 0.01
+                    #time.sleep(0.001)
+                    delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
+                    delta_a-=self.Kd_phi*state[9]
+                    self.aileron_l.set_target_position(delta_a)
+                    self.aileron_r.set_target_position(-delta_a)
+                    #print(self.phi_c,state[6]*np.pi/180)
+
+
+                    self.thruster.set_target_position(0.9*up.max_delta_t)
+                    
+                    #delta_t = self.pid_v.compute(self.dwell_speed,Va,dt)
+                    #self.thruster.set_target_position(delta_t+self.delta_tstar)
+
+                    #theta_c = self.pid_V2.compute(self.climb_speed,Va,dt)
+                    gamma=10*np.pi/180
+
+                    theta_c = self.internaldynamics.alpha+gamma
+                    #print(theta_c)
+                    delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
+                    self.elevator.set_target_position(delta_e)
+                    #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
+
+                    #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
+
+                    if -self.internaldynamics.state[2]>10:
+                        self.internaldynamics.status = 'HEADING'
+                        self.heading_height = -self.internaldynamics.state[2]+10
+                        self.heading_velocity = self.internaldynamics.Va+5
+                        calculate_gains(self,self.heading_velocity)
+                        print('Starting heading correction')
+                
+                elif self.internaldynamics.status == 'HEADING':
+                    self.target_psi = np.arctan2(self.target[1]-self.internaldynamics.state[1],self.target[0]-self.internaldynamics.state[0])
+                    #print(self.target_psi*180/np.pi)
+                    delta_r = self.pid_beta.compute(0.0,beta,dt)
+                    self.rudder.set_target_position(delta_r)
+                    #time.sleep(0.001)
+                    self.phi_c = self.pid_xi.compute(self.target_psi,self.internaldynamics.state[8]*np.pi/180,dt)
+                    #self.phi_c = 0.01
+                    #time.sleep(0.001)
+                    delta_a = self.pid_phi.compute(self.phi_c,state[6]*np.pi/180,dt)
+                    delta_a-=self.Kd_phi*state[9]
+                    self.aileron_l.set_target_position(delta_a)
+                    self.aileron_r.set_target_position(-delta_a)
+                    #print(self.phi_c,state[6]*np.pi/180)
+
+                    delta_t = self.pid_v.compute(self.heading_velocity,Va,dt)
+                    self.thruster.set_target_position(delta_t+self.delta_tstar)
+
+                    theta_c = self.pid_h.compute(self.heading_height,-state[2],dt)
+                    #theta_c = 2.3249*np.pi/180.0
+                    delta_e = self.Kp_theta*(theta_c-(state[7]*np.pi/180))-(self.Kd_theta*state[10])
+                    self.elevator.set_target_position(delta_e)
+                    #self.elevator.set_target_position(delta_e-4.4460*np.pi/180)
+
+                    #print(time.time(),theta_c,state[7]*np.pi/180,delta_e)
+                    if np.abs(self.target_psi-self.internaldynamics.state[8]*np.pi/180)<10*np.pi/180:
+                        self.internaldynamics.status = 'CLIMB'
+                        self.climb_speed=self.internaldynamics.Va
+                        print('Staring Climb')
+                            
                     
             previous_time = current_time
             time.sleep(0.01)  # Update at 100 Hz
@@ -232,3 +370,8 @@ def calculate_gains(controller,desVa):
     controller.omega_n_h = controller.omega_n_theta/controller.W_h
     controller.Ki_h = (controller.omega_n_h**2)/(controller.K_theta_DC*desVa)
     controller.Kp_h = 2*controller.damp_h*controller.omega_n_h/(controller.K_theta_DC*desVa)
+
+    # for velocity hold using pitch
+    omega_n_V2 = controller.omega_n_theta/controller.W_V2
+    controller.Kp_V2 = (aV1-(2*controller.damp_V2*omega_n_V2))/(controller.K_theta_DC*up.g)
+    controller.Ki_V2 = -(omega_n_V2**2)/(controller.K_theta_DC*up.g)

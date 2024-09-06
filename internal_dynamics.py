@@ -20,7 +20,9 @@ class InternalDynamics:
         
         # State vector:
         # [pn, pe, pd, u, v, w, φ (phi), θ (theta), ψ (psi), p, q, r]
-        self.state = np.array([[0.0], [0], [-100], [29.9753], [0.00], [1.2169], [0.0], [2.3249], [0.0], [0], [0], [0]])
+        #self.state = np.array([[0.0], [0], [-100], [29.9753], [0.00], [1.2169], [0.0], [2.3249], [0.0], [0], [0], [0]])
+        self.state = np.array([[0.0], [0], [-5], [5.0], [0.00], [0.0], [0.0], [10.0], [0.0], [0], [0], [0]])
+        self.status = 'TAKEOFF'
         #self.state=initCondition.flatten()
         self.mass=mass
         

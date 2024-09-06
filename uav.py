@@ -91,7 +91,7 @@ class UAVAgent:
         self.thrust.set_target_position(0.3986)
 
         self.dynamics = InternalDynamics(up.m,0.0,self.aileron_left,self.aileron_right,self.rudder,self.elevator,self.thrust)
-        self.controller = Controller(self.dynamics,self.aileron_left,self.aileron_right,self.rudder,self.elevator,self.thrust)
+        self.controller = Controller(self.dynamics,self.aileron_left,self.aileron_right,self.rudder,self.elevator,self.thrust,np.array([5000,5000]))
 
         
         #self.high_level_controller = HighLevelController(self.dynamics)

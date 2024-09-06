@@ -24,7 +24,7 @@ UE/
 ZeroMQ/
 GaeaProject/
 Data/
-*.txt
+
 *.png
 publisher.py
 publisher2.py
